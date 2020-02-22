@@ -1,3 +1,5 @@
+![Image of a female moose](hphr-logo.svg)
+
 # Halophile Router (hphr)
 
 The Halophile Router is a [VyOS](https://vyos.io/)-based, [SaltStack](https://github.com/saltstack/)-automated, [NetBox](http://github.com/digitalocean/netbox)-configured router for small provider networks.
