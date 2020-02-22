@@ -1,0 +1,1081 @@
+/* -=-=-=-=-=-=-=-=-=-=-=-=-=- INTERFACES -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+{% macro interface_ip_ospf(iface_name) %}
+            {% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf') %}
+            ospf {
+                {% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:cost',None) != None %}cost {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:cost') }}{% endif %}
+                {% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:passive') %}
+                {% else %}
+                network {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:network') }}
+                dead-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:dead-interval',40) }}
+                hello-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:hello-interval',10) }}
+                priority {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:priority',1) }}
+                retransmit-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:retransmit-interval',5) }}
+                transmit-delay {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:transmit-delay',1) }}
+                {% endif %}
+            }
+            {% endif %}
+{% endmacro %}
+
+{% macro interface_ipv6_ospfv3(iface_name) %}
+            {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3') %}
+            ospfv3 {
+                {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:cost',None) != None %}cost {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:cost') }}{% endif %}
+                instance-id {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:instance-id',0) }}
+                {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:passive') %}
+                passive
+                {% else %}
+                dead-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:dead-interval',40) }}
+                hello-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:hello-interval',10) }}
+                priority {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:priority',1) }}
+                retransmit-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:retransmit-interval',5) }}
+                transmit-delay {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:transmit-delay',1) }}
+                {% endif %}
+            }
+            {% endif %}
+{% endmacro %}
+
+interfaces {
+{% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}{% if iface_data['mgmt_only'] %}
+{% elif iface_name == 'lo' %}
+    loopback lo {
+        description "{{ iface_data['description'].replace('"','\\"') or "-" }}{% if iface_data['connected_endpoint'] and iface_data['connected_endpoint']['connection_status']['value'] %} ({% if iface_data['connected_endpoint']['device'] %}{{ iface_data['connected_endpoint']['name'] }} @ {{ iface_data['connected_endpoint']['device']['display_name'] }}{% endif %}){% endif %}"
+        {% for address in iface_data['addresses'] %}
+        address {{ address['address'] }}
+        {% endfor %}        
+        {% if salt['pillar.get']('interfaces:'+iface_name+':ip') %}
+        ip {
+{{ interface_ip_ospf(iface_name) }}
+        }
+        {% endif %}
+        {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6') %}
+        ipv6 {
+{{ interface_ipv6_ospfv3(iface_name) }}
+        }
+        {% endif %}
+    }
+{% elif iface_data.get('type',{}).get('label','') != 'Virtual' %}
+    ethernet {{ iface_name }} {
+        description "{{ iface_data['description'].replace('"','\\"') or "-" }}{% if iface_data['connected_endpoint'] and iface_data['connected_endpoint']['connection_status']['value'] %} ({% if iface_data['connected_endpoint']['device'] %}{{ iface_data['connected_endpoint']['name'] }} @ {{ iface_data['connected_endpoint']['device']['display_name'] }}{% endif %}){% endif %}"
+        {% for address in iface_data['addresses'] %}
+        address {{ address['address'] }}
+        {% endfor %}
+        {% if iface_data['mac_address'] %}hw-id {{ iface_data['mac_address'].lower() }}{% endif %}
+        duplex auto
+        policy {
+        }
+        smp-affinity auto
+        speed auto
+        {% if not iface_data['enabled'] %}disable{% endif %}
+        {% if iface_data['lag'] %}bond-group {{ iface_data['lag']['name'] }}{% endif %}
+
+        {% for tagged_vlan in iface_data['tagged_vlans'] %}
+        {% set subiface_data = salt['pillar.get']('netbox:interfaces:%s.%d'%(iface_name,tagged_vlan['vid']),{'description':'','addresses':[],'enabled':False}) %}
+        vif {{ tagged_vlan['vid'] }} {
+            description "{{ tagged_vlan['name'].replace('"','\\"') or "-" }} => {{ subiface_data['description'].replace('"','\\"') or "-" }}"
+            {% for address in subiface_data['addresses'] %}
+                address {{ address['address'] }}
+            {% endfor %}
+            {% if not subiface_data['enabled'] %}disable{% endif %}
+
+            {% if salt['pillar.get']('interfaces:'+iface_name+"."+("%d"%tagged_vlan['vid'])+':ip') %}
+            ip {
+    {{ interface_ip_ospf(iface_name+"."+("%d"%tagged_vlan['vid'])) }}
+            }
+            {% endif %}
+            {% if salt['pillar.get']('interfaces:'+iface_name+"."+("%d"%tagged_vlan['vid'])+':ipv6') %}
+            ipv6 {
+                dup-addr-detect-transmits 1
+    {{ interface_ipv6_ospfv3(iface_name+"."+("%d"%tagged_vlan['vid'])) }}
+            }
+            {% endif %}
+
+        }
+        {% endfor %}
+
+        {% for subiface_name, subiface_data in pillar['netbox']['interfaces'].items() %}{% if subiface_data.get('form_factor',{}).get('label','') == 'Virtual' and subiface_name.startswith( iface_name + "." ) %}
+        {% endif %}{% endfor %}
+
+        {% if salt['pillar.get']('interfaces:'+iface_name+':ip') %}
+        ip {
+{{ interface_ip_ospf(iface_name) }}
+        }
+        {% endif %}
+        {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6') %}
+        ipv6 {
+            dup-addr-detect-transmits 1
+{{ interface_ipv6_ospfv3(iface_name) }}
+        }
+        {% endif %}
+    }
+{% endif %}{% endfor %}
+}
+
+/* -=-=-=-=-=-=-=-=-=-=-=-=-=- PROTOCOLS -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+protocols {
+
+    /* -=-=-=-=-=-=-=-=-=-=-=-=-=- RPKI -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+    rpki {
+        {% for cache_name,cache_data in salt['pillar.get']('protocols:rpki:cache',{}).items() %}
+        cache {{ cache_name }} {
+            address {{ cache_data[ 'address' ] }}
+            port {{ cache_data.get('port',3233) }}
+        }
+        {% endfor %}
+    }
+
+    /* -=-=-=-=-=-=-=-=-=-=-=-=-=- OSPF -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+    ospf {
+        parameters {
+            router-id {{ salt['pillar.get']('protocols:ospf:parameters:router-id') }}
+            abr-type {{ salt['pillar.get']('protocols:ospf:parameters:abr-type','cisco') }}
+        }
+
+        {% if 'default-information' in salt['pillar.get']('protocols:ospf') %}
+        default-information {
+            {% if 'originate' in salt['pillar.get']('protocols:ospf:default-information') %}
+            originate {
+                {% if salt['pillar.get']('protocols:ospf:default-information:originate:metric',None) %}metric {{ salt['pillar.get']('protocols:ospf:default-information:originate:metric') }}{% endif %}
+                {% if salt['pillar.get']('protocols:ospf:default-information:originate:metric-type',None) %}metric-type {{ salt['pillar.get']('protocols:ospf:default-information:originate:metric-type') }}{% endif %}
+            }
+            {% endif %}
+        }
+        {% endif %}
+
+        {% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}{% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:passive') %}
+        passive-interface {{ iface_name }}
+        {% endif %}{% endfor %}
+        {% for area_name, area_data in pillar['protocols']['ospf']['area'].items() %}
+        area {{ area_name }} {
+            {% for network, network_data in area_data['networks'].items() %}
+            network {{ network }}
+            {% endfor %}
+        }
+        {% endfor %}
+    }
+
+    ospfv3 {
+        parameters {
+            router-id {{ salt['pillar.get']('protocols:ospfv3:parameters:router-id') }}
+        }
+
+        {% for area_name, area_data in pillar['protocols']['ospfv3']['area'].items() %}
+        area {{ area_name }} {
+            {% for range, range_data in area_data.get('range',{}).items() %}
+            range {{ range }} {
+            }
+            {% endfor %}
+            {% for interface, interface_data in area_data.get('interface',{}).items() %}
+            interface {{ interface }}
+            {% endfor %}
+        }
+        {% endfor %}
+    }
+
+    /* -=-=-=-=-=-=-=-=-=-=-=-=-=- STATIC -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+    static {
+
+{% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}
+{% for address in iface_data['addresses'] %}
+{% if address['address'].endswith("/32") and address.get('description','')|is_ipv4(options='public') %}
+        interface-route {{ address['description'] }} {
+            next-hop-interface {{ iface_name }}
+        }
+{% endif %}
+{% if address['address'].endswith("/128") and address.get('description','')|is_ipv6(options='public') %}
+        interface-route6 {{ address['description'] }} {
+            next-hop-interface {{ iface_name }}
+        }
+{% endif %}
+{% endfor %}
+{% endfor %}
+
+        {% for route_name, route_data in pillar['protocols']['static']['route'].items() %}
+        route {{ route_name }} {
+            {% for nexthop, nexthop_data in route_data.get('next-hop',{}).items() %}
+            next-hop {{ nexthop }} {
+            }
+            {% endfor %}
+            {% if route_data.get('blackhole',None) %}
+            blackhole {
+                distance {{ route_data['blackhole'].get('distance',254) }}
+            }
+            {% endif %}
+        }
+        {% endfor %}
+        {% for route_name, route_data in pillar['protocols']['static']['route6'].items() %}
+        route6 {{ route_name }} {
+            {% for nexthop, nexthop_data in route_data.get('next-hop',{}).items() %}
+            next-hop {{ nexthop }} {
+            }
+            {% endfor %}
+            {% if route_data.get('blackhole',None) %}
+            blackhole {
+                distance {{ route_data['blackhole'].get('distance',254) }}
+            }
+            {% endif %}
+        }
+        {% endfor %}
+    }
+
+    /* -=-=-=-=-=-=-=-=-=-=-=-=-=- BGP -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+    {% for bgp_as, as_data in salt['pillar.get']('protocols:bgp',{}).items() %}
+    bgp {{ bgp_as }} {
+        parameters {
+            router-id {{ as_data['parameters']['router-id'] }}
+        }
+        {% if as_data.get('address-family',None) %}
+        address-family {
+            {% if as_data['address-family'].get('ipv4-unicast',None) %}
+            ipv4-unicast {
+                redistribute {
+                    {% for redistribute, redist_data in as_data['address-family']['ipv4-unicast'].get('redistribute',{}).items() %}
+                    {{ redistribute }} {
+                        {% if 'route-map' in redist_data %}route-map {{ redist_data['route-map'] }}{% endif %}
+                    }
+                    {% endfor %}
+                }
+                {% for network, network_data in as_data['address-family']['ipv4-unicast'].get('network',{}).items() %}
+                network {{ network }} {
+                    {% if 'route-map' in network_data %}route-map {{ network_data['route-map'] }}{% endif %}
+                }
+                {% endfor %}
+            }
+            {% endif %}
+            {% if as_data['address-family'].get('ipv6-unicast',None) %}
+            ipv6-unicast {
+                redistribute {
+                    {% for redistribute, redist_data in as_data['address-family']['ipv6-unicast'].get('redistribute',{}).items() %}
+                    {{ redistribute }} {
+                        {% if 'route-map' in redist_data %}route-map {{ redist_data['route-map'] }}{% endif %}
+                    }
+                    {% endfor %}
+                }
+                {% for network, network_data in as_data['address-family']['ipv6-unicast'].get('network',{}).items() %}
+                network {{ network }} {
+                    {% if 'route-map' in network_data %}route-map {{ network_data['route-map'] }}{% endif %}
+                }
+                {% endfor %}
+            }
+            {% endif %}
+        }
+        {% endif %}
+
+        {% for neighbor, neighbor_data in as_data.get('neighbor',{}).items() %}
+        neighbor {{ neighbor }} {
+            remote-as {{ neighbor_data['remote-as'] }}
+            {% if 'password' in neighbor_data %}password {{ neighbor_data['password'] }}{% endif %}
+            {% if 'update-source' in neighbor_data %}update-source {{ neighbor_data['update-source'] }}{% endif %}
+            {% if 'ebgp-multihop' in neighbor_data %}ebgp-multihop {{ neighbor_data['ebgp-multihop'] }}{% endif %}
+
+            {% if 'address-family' in neighbor_data %}
+            address-family {
+                {% if 'ipv4-unicast' in neighbor_data['address-family'] %}
+                ipv4-unicast {
+                    {% if neighbor_data['address-family']['ipv4-unicast'].get('route-reflector-client',False) %}route-reflector-client{% endif %}
+                    {% if neighbor_data['address-family']['ipv4-unicast'].get('route-server-client',False) %}route-server-client{% endif %}
+                    {% if 'prefix-list' in neighbor_data['address-family']['ipv4-unicast'] %}
+                    prefix-list {
+                        {% if 'export' in neighbor_data['address-family']['ipv4-unicast']['prefix-list'] %}export {{ neighbor_data['address-family']['ipv4-unicast']['prefix-list']['export'] }}{% endif %}
+                        {% if 'import' in neighbor_data['address-family']['ipv4-unicast']['prefix-list'] %}import {{ neighbor_data['address-family']['ipv4-unicast']['prefix-list']['import'] }}{% endif %}
+                    }
+                    {% endif %}
+                    {% if 'route-map' in neighbor_data['address-family']['ipv4-unicast'] %}
+                    route-map {
+                        {% if 'export' in neighbor_data['address-family']['ipv4-unicast']['route-map'] %}export {{ neighbor_data['address-family']['ipv4-unicast']['route-map']['export'] }}{% endif %}
+                        {% if 'import' in neighbor_data['address-family']['ipv4-unicast']['route-map'] %}import {{ neighbor_data['address-family']['ipv4-unicast']['route-map']['import'] }}{% endif %}
+                    }
+                    {% endif %}
+                    {% if 'soft-reconfiguration' in neighbor_data['address-family']['ipv4-unicast'] %}
+                    soft-reconfiguration {
+                        {% for softreconf in neighbor_data['address-family']['ipv4-unicast']['soft-reconfiguration'] %}
+                            {{ softreconf }}
+                        {% endfor %}
+                    }
+                    {% endif %}
+                    {% if 'allowas-in' in neighbor_data['address-family']['ipv4-unicast'] %}
+                    allowas-in {
+                        {# neighbor_data['address-family']['ipv4-unicast']['allowas-in'] #}
+                    }
+                    {% endif %}
+                    {% if neighbor_data['address-family']['ipv4-unicast'].get('nexthop-self',False) %}
+                    nexthop-self
+                    {% endif %}
+                    {% if neighbor_data['address-family']['ipv4-unicast'].get('maximum-prefix',None) != None %}
+                    maximum-prefix {{ neighbor_data['address-family']['ipv4-unicast'].get('maximum-prefix',None) }}
+                    {% endif %}
+                }
+                {% endif %}
+                {% if 'ipv6-unicast' in neighbor_data['address-family'] %}
+                ipv6-unicast {
+                    {% if neighbor_data['address-family']['ipv6-unicast'].get('route-reflector-client',False) %}route-reflector-client{% endif %}
+                    {% if neighbor_data['address-family']['ipv6-unicast'].get('route-server-client',False) %}route-server-client{% endif %}
+                    {% if 'prefix-list' in neighbor_data['address-family']['ipv6-unicast'] %}
+                    prefix-list {
+                        {% if 'export' in neighbor_data['address-family']['ipv6-unicast']['prefix-list'] %}export {{ neighbor_data['address-family']['ipv6-unicast']['prefix-list']['export'] }}{% endif %}
+                        {% if 'import' in neighbor_data['address-family']['ipv6-unicast']['prefix-list'] %}import {{ neighbor_data['address-family']['ipv6-unicast']['prefix-list']['import'] }}{% endif %}
+                    }
+                    {% endif %}
+                    {% if 'route-map' in neighbor_data['address-family']['ipv6-unicast'] %}
+                    route-map {
+                        {% if 'export' in neighbor_data['address-family']['ipv6-unicast']['route-map'] %}export {{ neighbor_data['address-family']['ipv6-unicast']['route-map']['export'] }}{% endif %}
+                        {% if 'import' in neighbor_data['address-family']['ipv6-unicast']['route-map'] %}import {{ neighbor_data['address-family']['ipv6-unicast']['route-map']['import'] }}{% endif %}
+                    }
+                    {% endif %}
+                    {% if 'soft-reconfiguration' in neighbor_data['address-family']['ipv6-unicast'] %}
+                    soft-reconfiguration {
+                        {% for softreconf in neighbor_data['address-family']['ipv6-unicast']['soft-reconfiguration'] %}
+                            {{ softreconf }}
+                        {% endfor %}
+                    }
+                    {% endif %}
+                    {% if 'allowas-in' in neighbor_data['address-family']['ipv6-unicast'] %}
+                    allowas-in {
+                        {# neighbor_data['address-family']['ipv6-unicast']['allowas-in'] #}
+                    }
+                    {% endif %}
+                    {% if neighbor_data['address-family']['ipv6-unicast'].get('nexthop-self',False) %}
+                    nexthop-self
+                    {% endif %}
+                    {% if neighbor_data['address-family']['ipv6-unicast'].get('maximum-prefix',None) != None %}
+                    maximum-prefix {{ neighbor_data['address-family']['ipv6-unicast'].get('maximum-prefix',None) }}
+                    {% endif %}
+                }
+                {% endif %}
+            }
+            {% endif %}
+
+        }
+        {% endfor %}
+
+    }
+    {% endfor %}
+}
+
+/* -=-=-=-=-=-=-=-=-=-=-=-=-=- POLICY -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+policy {
+
+    prefix-list hphr-NO-IPv4 {
+        rule 1 {
+            prefix 0.0.0.0/0
+            le 32
+            action deny
+        }
+    }
+
+    prefix-list hphr-ALL-IPv4 {
+        rule 1 {
+            prefix 0.0.0.0/0
+            le 32
+            action permit
+        }
+    }
+
+    prefix-list hphr-DEFAULT-IPv4 {
+        rule 1 {
+            prefix 0.0.0.0/0
+            action permit
+        }
+        rule 2 {
+            prefix 0.0.0.0/0
+            le 32
+            action deny
+        }
+    }
+
+    prefix-list hphr-DFZ-IPv4 {
+        rule 100 {
+            prefix 192.168.0.0/16
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 101 {
+            prefix 172.16.0.0/12
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 102 {
+            prefix 10.0.0.0/8
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 103 {
+            prefix 169.254.0.0/16
+            description "link-local"
+            le 32
+            action deny
+        }
+        rule 104 {
+            prefix 100.64.0.0/10
+            description "CGNAT"
+            le 32
+            action deny
+        }
+        rule 105 {
+            prefix 127.0.0.0/8
+            description "loopback"
+            le 32
+            action deny
+        }
+        rule 106 {
+            prefix 192.0.0.0/24
+            description "IETF protocol assignments"
+            le 32
+            action deny
+        }
+        rule 107 {
+            prefix 192.0.2.0/24
+            description "TEST-NET-1"
+            le 32
+            action deny
+        }
+        rule 108 {
+            prefix 198.18.0.0/15
+            description "Network interconnect device benchmark testing"
+            le 32
+            action deny
+        }
+        rule 109 {
+            prefix 198.51.100.0/24
+            description "TEST-NET-2"
+            le 32
+            action deny
+        }
+        rule 110 {
+            prefix 203.0.113.0/24
+            description "TEST-NET-3"
+            le 32
+            action deny
+        }
+        rule 111 {
+            prefix 224.0.0.0/4
+            description "multicast"
+            le 32
+            action deny
+        }
+        rule 112 {
+            prefix 240.0.0.0/4
+            description "reserved"
+            le 32
+            action deny
+        }
+        rule 1000 {
+            prefix 0.0.0.0/0
+            le 24
+            action permit
+        }
+        rule 65535 {
+            prefix 0.0.0.0/0
+            le 32
+            action deny
+        }
+    }
+
+    prefix-list hphr-DFZ-DEFAULT-IPv4 {
+        rule 10 {
+            prefix 0.0.0.0/0
+            action permit
+        }
+        rule 100 {
+            prefix 192.168.0.0/16
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 101 {
+            prefix 172.16.0.0/12
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 102 {
+            prefix 10.0.0.0/8
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 103 {
+            prefix 169.254.0.0/16
+            description "link-local"
+            le 32
+            action deny
+        }
+        rule 104 {
+            prefix 100.64.0.0/10
+            description "CGNAT"
+            le 32
+            action deny
+        }
+        rule 105 {
+            prefix 127.0.0.0/8
+            description "loopback"
+            le 32
+            action deny
+        }
+        rule 106 {
+            prefix 192.0.0.0/24
+            description "IETF protocol assignments"
+            le 32
+            action deny
+        }
+        rule 107 {
+            prefix 192.0.2.0/24
+            description "TEST-NET-1"
+            le 32
+            action deny
+        }
+        rule 108 {
+            prefix 198.18.0.0/15
+            description "Network interconnect device benchmark testing"
+            le 32
+            action deny
+        }
+        rule 109 {
+            prefix 198.51.100.0/24
+            description "TEST-NET-2"
+            le 32
+            action deny
+        }
+        rule 110 {
+            prefix 203.0.113.0/24
+            description "TEST-NET-3"
+            le 32
+            action deny
+        }
+        rule 111 {
+            prefix 224.0.0.0/4
+            description "multicast"
+            le 32
+            action deny
+        }
+        rule 112 {
+            prefix 240.0.0.0/4
+            description "reserved"
+            le 32
+            action deny
+        }
+        rule 1000 {
+            prefix 0.0.0.0/0
+            le 24
+            action permit
+        }
+        rule 65535 {
+            prefix 0.0.0.0/0
+            le 32
+            action deny
+        }
+    }
+
+    prefix-list6 hphr-NO-IPv6 {
+        rule 1 {
+            prefix ::/0
+            le 128
+            action deny
+        }
+    }
+
+    prefix-list6 hphr-ALL-IPv6 {
+        rule 1 {
+            prefix ::/0
+            le 128
+            action permit
+        }
+    }
+
+    prefix-list6 hphr-DEFAULT-IPv6 {
+        rule 1 {
+            prefix ::/0
+            action permit
+        }
+        rule 2 {
+            prefix ::/0
+            le 128
+            action deny
+        }
+    }
+
+    prefix-list6 hphr-DFZ-IPv6 {
+        rule 100 {
+            prefix ::/128
+            description "not self"
+            action deny
+        }
+        rule 101 {
+            prefix ::1/128
+            description "self"
+            action deny
+        }
+        rule 102 {
+            prefix ::ffff:0:0/96
+            description "IPv4-mapped"
+            le 128
+            action deny
+        }
+        rule 103 {
+            prefix ::/96
+            description "IPv4-compatible"
+            le 128
+            action deny
+        }
+        rule 104 {
+            prefix 100::/64
+            description "RTBH addresses"
+            le 128
+            action deny
+        }
+        rule 105 {
+            prefix 2001:10::/28
+            description "ORCHID addresses"
+            le 128
+            action deny
+        }
+        rule 106 {
+            prefix 2001:db8::/32
+            description "documentation prefix"
+            le 128
+            action deny
+        }
+        rule 107 {
+            prefix fc00::/7
+            description "ULA address"
+            le 128
+            action deny
+        }
+        rule 108 {
+            prefix fe80::/10
+            description "link-local"
+            le 128
+            action deny
+        }
+        rule 109 {
+            prefix fec0::/10
+            description "site-local"
+            le 128
+            action deny
+        }
+        rule 110 {
+            prefix ff0e::/16
+            description "global multicast"
+            le 64
+            action permit
+        }
+        rule 111 {
+            prefix ff00::/8
+            description "multicast"
+            le 128
+            action deny
+        }
+        rule 1000 {
+            prefix ::/0
+            le 64
+            action permit
+        }
+    }
+
+    prefix-list6 hphr-DFZ-DEFAULT-IPv6 {
+        rule 10 {
+            prefix ::/0
+            action permit
+        }
+        rule 100 {
+            prefix ::/128
+            description "not self"
+            action deny
+        }
+        rule 101 {
+            prefix ::1/128
+            description "self"
+            action deny
+        }
+        rule 102 {
+            prefix ::ffff:0:0/96
+            description "IPv4-mapped"
+            le 128
+            action deny
+        }
+        rule 103 {
+            prefix ::/96
+            description "IPv4-compatible"
+            le 128
+            action deny
+        }
+        rule 104 {
+            prefix 100::/64
+            description "RTBH addresses"
+            le 128
+            action deny
+        }
+        rule 105 {
+            prefix 2001:10::/28
+            description "ORCHID addresses"
+            le 128
+            action deny
+        }
+        rule 106 {
+            prefix 2001:db8::/32
+            description "documentation prefix"
+            le 128
+            action deny
+        }
+        rule 107 {
+            prefix fc00::/7
+            description "ULA address"
+            le 128
+            action deny
+        }
+        rule 108 {
+            prefix fe80::/10
+            description "link-local"
+            le 128
+            action deny
+        }
+        rule 109 {
+            prefix fec0::/10
+            description "site-local"
+            le 128
+            action deny
+        }
+        rule 110 {
+            prefix ff0e::/16
+            description "global multicast"
+            le 64
+            action permit
+        }
+        rule 111 {
+            prefix ff00::/8
+            description "multicast"
+            le 128
+            action deny
+        }
+        rule 1000 {
+            prefix ::/0
+            le 64
+            action permit
+        }
+    }
+
+    prefix-list hphr-BLACKHOLE-IPv4 {
+        rule 1 {
+            prefix 0.0.0.0/0
+            ge 32
+            le 32
+            action permit
+        }
+    }
+
+    prefix-list6 hphr-BLACKHOLE-IPv6 {
+        rule 1 {
+            prefix ::/0
+            ge 64
+            le 128
+            action permit
+        }
+    }
+
+    route-map hphr-BLACKHOLE-IPv4 {
+        rule 1 {
+            match {
+                ip {
+                    address {
+                        prefix-list hphr-BLACKHOLE-IPv4
+                    }
+                }
+            }
+            action permit
+            set {
+                ip-next-hop {{ salt['pillar.get']('protocols:static:blackhole:IPv4') }}
+            }
+        }
+    }
+
+    route-map hphr-BLACKHOLE-IPv6 {
+        rule 1 {
+            match {
+                ipv6 {
+                    address {
+                        prefix-list hphr-BLACKHOLE-IPv6
+                    }
+                }
+            }
+            action permit
+            set {
+                ipv6-next-hop {
+                    global {{ salt['pillar.get']('protocols:static:blackhole:IPv6') }}
+                }
+            }
+        }
+    }
+
+    {% for community_list_name, cm_data in pillar['policy']['community-list'].items() %}
+    community-list {{ community_list_name }} {
+        {% for group in cm_data %}
+        rule {{ loop.index }} {
+            regex "{{ group['community'] }}"
+            action permit
+        }
+        {% endfor %}
+    }
+    {% endfor %}
+
+    {% for route_map_name, af_pg in pillar['policy']['route-map'].items() %}{% for af, prefix_groups in af_pg.items() %}
+    route-map {{ route_map_name }}-{{ af }} {
+        {% for group in prefix_groups %}
+        rule {{ loop.index }} {
+            match {
+                {% if 'match-prefix-list' in group %}
+                {% if af=="IPv4" %}ip{% elif af=="IPv6" %}ipv6{% endif %} {
+                    address {
+                        prefix-list {{ group['match-prefix-list'] }}
+                    }
+                }
+                {% endif %}
+                {% if 'match-community' in group %}
+                community {
+                    community-list {{ group['match-community'] }}
+                }
+                {% endif %}
+                {% if 'match-rpki' in group %}
+                    rpki {{ group['match-rpki'] }}
+                {% endif %}
+            }
+            action {{ group.get('action','permit') }}
+            {% if 'on-match' in group %}
+            on-match {
+                {{ group['on-match'] }}
+            }
+            {% endif %}
+            {% if 'continue' in group %}
+            continue {% if group['continue'] == 'next' %}{{ loop.index+1 }}{% else %}{{ group['continue'] }}{% endif %}
+            {% endif %}
+            set {
+                {% if 'set-community' in group %}community {{ group['set-community'] }}{% endif %}
+                {% if 'set-local-preference' in group %}local-preference {{ group['set-local-preference'] }}{% endif %}
+            }
+        }
+        {% endfor %}
+    }
+    {% endfor %}{% endfor %}
+
+
+
+    {% for prefix_list_name, prefix_data in salt['pillar.get']("policy:prefix-list",{}).items() %}
+    prefix-list {{ prefix_list_name }} {
+        {% if 'bgpq3' in prefix_data %}
+            {% set jsonblob = salt['cmd.run']('/tmp/bgpq3 -A -4 -j ' + prefix_data["bgpq3"]["IPv4"], env={'BIND_ADDR':pillar['loopback']['IPv4'], 'BIND_ADDR6':pillar['loopback']['IPv6'], 'LD_PRELOAD':'/tmp/bind.so'})|load_json %}
+            {% for prefix in jsonblob.NN %}
+            rule {{ loop.index }} {
+                action permit
+                prefix {{ prefix['prefix'] }}
+                {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
+                {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+            }
+            {% endfor %}
+        {% elif 'static' in prefix_data %}
+            {% for prefix in prefix_data['static']['prefixes'] %}
+            rule {{ loop.index }} {
+                {% if prefix.get('description',None) != None %}description '{{ prefix['description'].replace("'","\\'") }}'{% endif %}
+                action permit
+                prefix {{ prefix['prefix'] }}
+                {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
+                {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+            }
+            {% endfor %}
+        {% endif %}
+        rule 65535 {
+            prefix 0.0.0.0/0
+            le 32
+            action deny
+        }
+    }
+    {% endfor %}
+
+    {% for prefix_list_name, prefix_data in salt['pillar.get']("policy:prefix-list",{}).items() %}
+    prefix-list6 {{ prefix_list_name }} {
+        {% if 'bgpq3' in prefix_data %}
+            {% set jsonblob = salt['cmd.run']('/tmp/bgpq3 -A -6 -j ' + prefix_data["bgpq3"]["IPv6"], env={'BIND_ADDR':pillar['loopback']['IPv4'], 'BIND_ADDR6':pillar['loopback']['IPv6'], 'LD_PRELOAD':'/tmp/bind.so'})|load_json %}
+            {% for prefix in jsonblob.NN %}
+            rule {{ loop.index }} {
+                action permit
+                prefix {{ prefix['prefix'] }}
+                {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
+                {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+            }
+            {% endfor %}
+        {% elif 'static' in prefix_data %}
+            {% for prefix in prefix_data['static']['prefixes'] %}
+            {% if prefix.get('description',None) != None %}description '{{ prefix['description'].replace("'","\\'") }}'{% endif %}
+            rule {{ loop.index }} {
+                action permit
+                prefix {{ prefix['prefix'] }}
+                {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
+                {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+            }
+            {% endfor %}
+        {% endif %}
+        rule 65535 {
+            prefix ::/0
+            le 128
+            action deny
+        }
+    }
+    {% endfor %}
+
+}
+
+/* -=-=-=-=-=-=-=-=-=-=-=-=-=- SERVICE -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+service {
+    lldp {
+        {% for iface_name, iface_data in salt['pillar.get']('service:lldp:interface',{}).items() %}
+        interface {{ iface_name }} {
+        }
+        {% endfor %}
+        management-address {{ pillar['service']['lldp']['management-address'] }}
+    }
+    salt-minion {
+        id {{ grains['fqdn'] }}
+        master {{ pillar['service']['salt-minion']['master'] }}
+    }
+    snmp {
+        {% for cty_name, cty_data in salt['pillar.get']('service:snmp:community',{}).items() %}
+        community {{ cty_name }} {
+        }
+        {% endfor %}
+        trap-source {{ pillar['service']['snmp']['trap-source'] }}
+        listen-address {{ pillar['service']['snmp']['trap-source'] }}
+        {% for trap_target, trap_data in salt['pillar.get']('service:snmp:trap-target',{}).items() %}
+        trap-target {{ trap_target }} {
+        }
+        {% endfor %}
+    }
+    ssh {
+        listen-address {{ pillar['service']['ssh']['listen-address'] }}
+        ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+        key-exchange curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256
+        mac hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
+    }
+}
+
+/* -=-=-=-=-=-=-=-=-=-=-=-=-=- SYSTEM -=-=-=-=-=-=-=-=-=-=-=-=-=- */
+
+system {
+    config-management {
+        commit-revisions 100
+    }
+
+    console {
+        device ttyS0 {
+            speed 9600
+        }
+    }
+
+    flow-accounting {
+        {% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}{% if salt['pillar.get']('interfaces:'+iface_name+':netflow') %}
+        interface {{ iface_name }}
+        {% endif %}{% endfor %}
+        netflow {
+            sampling-rate {{ pillar['netflow']['sampling-rate']}}
+            {% for server in pillar['netflow']['servers'] %}
+            server {{ server.split(":")[0] }} {
+                port {{ server.split(":")[1] }}
+            }
+            {% endfor %}
+            version 9
+        }
+    }
+
+    host-name {{ grains['fqdn'] }}
+
+    ip {
+        multipath {
+            layer4-hashing
+        }
+    }
+
+    ipv6 {
+        multipath {
+            layer4-hashing
+        }
+    }
+
+    login {
+        {% for user, user_data in pillar['users'].items() %}
+        user {{ user }} {
+            {% if 'authentication' in user_data %}
+            authentication {
+                {% if 'encrypted-password' in user_data['authentication'] %}
+                encrypted-password {{ user_data['authentication']['encrypted-password'] }}
+                plaintext-password ""
+                {% else %}
+                plaintext-password '{{ user_data['authentication']['plaintext-password'] }}'
+                {% endif %}
+                {% for key, key_data in user_data['authentication'].get('public-keys',{}).items() %}
+                public-keys {{ key }} {
+                    key {{ key_data['key'] }}
+                    type {{ key_data.get('type','ssh-rsa') }}
+                }
+                {% endfor %}
+            }
+            {% endif %}
+            level {{ user_data.get('level','operator') }}
+        }
+        {% endfor %}
+    }
+
+{% for nameserver in pillar['nameservers'] %}
+    name-server {{ nameserver }}
+{% endfor %}
+
+    ntp {
+{% for ntp_server, ntp_data in pillar['ntp'].items() %}
+        server {{ ntp_server }} {
+        }
+{% endfor %}
+    }
+
+    options {
+        ctrl-alt-del-action ignore
+        reboot-on-panic true
+        beep-if-fully-booted
+    }
+
+    sysctl {
+        all net.ipv4.conf.all.rp_filter {
+            value 2
+        }
+        all net.ipv4.conf.default.rp_filter {
+            value 2
+        }
+        {% for sysctl, value in salt['pillar.get']('system:sysctl:custom', {}).items() %}
+        custom {{ sysctl }} {
+            value {{ value }}
+        }
+        {% endfor %}
+    }
+
+    syslog {
+        global {
+            facility all {
+                level info
+            }
+            facility protocols {
+                level debug
+            }
+        }
+    }
+
+    time-zone UTC
+}
+
+/* Warning: Do not remove the following line. */
+/* === vyatta-config-version: "broadcast-relay@1:cluster@1:config-management@1:conntrack-sync@1:conntrack@1:dhcp-relay@2:dhcp-server@5:firewall@5:ipsec@5:l2tp@1:mdns@1:nat@4:ntp@1:pptp@1:qos@1:quagga@3:ssh@1:system@11:vrrp@2:vyos-accel-ppp@1:wanloadbalance@3:webgui@1:webproxy@1:webproxy@2:zone-policy@1" === */
+/* Release version: 1.2.0-rolling+201904240337 */

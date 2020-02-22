@@ -1,0 +1,45 @@
+create tmp-bcp38-cone-oface-v4 hash:net,iface family inet hashsize 1024 maxelem 65536
+{% for iface, iface_data in salt["pillar.get"]("interfaces").items() %}{% if iface_data.get("bcp38",None) %}{% set jsonblob = salt["cmd.run"]("/tmp/bgpq3 -A -4 -j " + iface_data["bcp38"]["source"]["bgpq3"]["IPv4"], env={"BIND_ADDR":pillar["loopback"]["IPv4"], "BIND_ADDR6":pillar["loopback"]["IPv6"], "LD_PRELOAD":"/tmp/bind.so"})|load_json %}{% for prefix in jsonblob.NN|groupby("prefix") %}
+add tmp-bcp38-cone-oface-v4 {{ prefix.grouper }},{{ iface }}
+{% endfor %}{% endif %}{% endfor %}
+swap tmp-bcp38-cone-oface-v4 bcp38-cone-oface-v4
+destroy tmp-bcp38-cone-oface-v4
+
+create tmp-bcp38-else-oface-v4 hash:net,iface family inet hashsize 1024 maxelem 65536
+{% for iface, iface_data in salt["pillar.get"]("interfaces").items() %}{% if iface_data.get("bcp38",None) %}
+add tmp-bcp38-else-oface-v4 0.0.0.0/0,{{ iface }}
+{% endif %}{% endfor %}
+swap tmp-bcp38-else-oface-v4 bcp38-else-oface-v4
+destroy tmp-bcp38-else-oface-v4
+
+create tmp-bcp38-cone-oface-v6 hash:net,iface family inet6 hashsize 1024 maxelem 65536
+{% for iface, iface_data in salt["pillar.get"]("interfaces").items() %}{% if iface_data.get("bcp38",None) %}{% set jsonblob = salt["cmd.run"]("/tmp/bgpq3 -A -6 -j " + iface_data["bcp38"]["source"]["bgpq3"]["IPv6"], env={"BIND_ADDR":pillar["loopback"]["IPv4"], "BIND_ADDR6":pillar["loopback"]["IPv6"], "LD_PRELOAD":"/tmp/bind.so"})|load_json %}{% for prefix in jsonblob.NN|groupby("prefix") %}
+add tmp-bcp38-cone-oface-v6 {{ prefix.grouper }},{{ iface }}
+{% endfor %}{% endif %}{% endfor %}
+swap tmp-bcp38-cone-oface-v6 bcp38-cone-oface-v6
+destroy tmp-bcp38-cone-oface-v6
+
+create tmp-bcp38-else-oface-v6 hash:net,iface family inet6 hashsize 1024 maxelem 65536
+{% for iface, iface_data in salt["pillar.get"]("interfaces").items() %}{% if iface_data.get("bcp38",None) %}
+add tmp-bcp38-else-oface-v6 ::/0,{{ iface }}
+{% endif %}{% endfor %}
+swap tmp-bcp38-else-oface-v6 bcp38-else-oface-v6
+destroy tmp-bcp38-else-oface-v6
+
+{% if salt["pillar.get"]("control-plane-protection:bgp:IPv4",None) != None %}
+create tmp-control-plane-bgp-v4 hash:net family inet hashsize 1024 maxelem 65536
+{% for subnet in salt["pillar.get"]("control-plane-protection:bgp:IPv4",{}).keys() %}
+add tmp-control-plane-bgp-v4 {{ subnet }}
+{% endfor %}
+swap tmp-control-plane-bgp-v4 control-plane-bgp-v4
+destroy tmp-control-plane-bgp-v4
+{% endif %}
+
+{% if salt["pillar.get"]("control-plane-protection:bgp:IPv6",None) != None %}
+create tmp-control-plane-bgp-v6 hash:net family inet6 hashsize 1024 maxelem 65536
+{% for subnet in salt["pillar.get"]("control-plane-protection:bgp:IPv6",{}).keys() %}
+add tmp-control-plane-bgp-v6 {{ subnet }}
+{% endfor %}
+swap tmp-control-plane-bgp-v6 control-plane-bgp-v6
+destroy tmp-control-plane-bgp-v6
+{% endif %}

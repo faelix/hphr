@@ -1,0 +1,39 @@
+*filter
+:INPUT ACCEPT [0:0]
+{% if salt["pillar.get"]("control-plane-protection:bgp:IPv4",None) != None %}
+-A INPUT -p tcp --dport 179 -m set --match-set control-plane-bgp-v4 src -j ACCEPT
+-A INPUT -p tcp --dport 179 -m tcp -j REJECT --reject-with tcp-reset
+{% endif %}
+:FORWARD ACCEPT [0:0]
+-A FORWARD -m set --match-set bcp38-cone-oface-v4 src,dst -j ACCEPT
+-A FORWARD -m set --match-set bcp38-else-oface-v4 src,dst -j DROP
+:OUTPUT ACCEPT [0:0]
+COMMIT
+
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:VYATTA_CT_PREROUTING_HOOK - [0:0]
+-A PREROUTING -j NOTRACK
+COMMIT
+
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+COMMIT
+
+*mangle
+:PREROUTING ACCEPT [0:0]
+{% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}{% if salt['pillar.get']('interfaces:'+iface_name+':netflow') %}
+-A PREROUTING -i {{ iface_name }} -j NFLOG --nflog-group 2 --nflog-range 64 --nflog-threshold 10
+{% endif %}{% endfor %}
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+{% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}{% if salt['pillar.get']('interfaces:'+iface_name+':netflow') %}
+-A POSTROUTING -o {{ iface_name }} -j NFLOG --nflog-group 2 --nflog-range 64 --nflog-threshold 10
+{% endif %}{% endfor %}
+COMMIT
