@@ -34,6 +34,7 @@ policy:
             bgpq3:
                 IPv4: AS4200000000
                 IPv6: AS4200000000
+                most-specific: True
 
         auto-AS4200000000-UK:
             bgpq3:
