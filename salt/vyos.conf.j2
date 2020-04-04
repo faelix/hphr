@@ -4,7 +4,7 @@
             {% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf') %}
             ospf {
                 {% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:cost',None) != None %}cost {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:cost') }}{% endif %}
-                {% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:passive') %}
+                {% if salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:passive',False) %}
                 {% else %}
                 network {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:network') }}
                 dead-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ip:ospf:dead-interval',40) }}
@@ -22,7 +22,7 @@
             ospfv3 {
                 {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:cost',None) != None %}cost {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:cost') }}{% endif %}
                 instance-id {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:instance-id',0) }}
-                {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:passive') %}
+                {% if salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:passive',False) %}
                 passive
                 {% else %}
                 dead-interval {{ salt['pillar.get']('interfaces:'+iface_name+':ipv6:ospfv3:dead-interval',40) }}
@@ -228,6 +228,9 @@ protocols {
     bgp {{ bgp_as }} {
         parameters {
             router-id {{ as_data['parameters']['router-id'] }}
+            default {
+                no-ipv4-unicast
+            }
         }
         {% if as_data.get('address-family',None) %}
         address-family {
@@ -309,6 +312,10 @@ protocols {
                     {% if neighbor_data['address-family']['ipv4-unicast'].get('maximum-prefix',None) != None %}
                     maximum-prefix {{ neighbor_data['address-family']['ipv4-unicast'].get('maximum-prefix',None) }}
                     {% endif %}
+                    {% if neighbor_data['address-family']['ipv4-unicast'].get('default-originate',False) %}
+                    default-originate {
+                    }
+                    {% endif %}
                 }
                 {% endif %}
                 {% if 'ipv6-unicast' in neighbor_data['address-family'] %}
@@ -344,6 +351,10 @@ protocols {
                     {% endif %}
                     {% if neighbor_data['address-family']['ipv6-unicast'].get('maximum-prefix',None) != None %}
                     maximum-prefix {{ neighbor_data['address-family']['ipv6-unicast'].get('maximum-prefix',None) }}
+                    {% endif %}
+                    {% if neighbor_data['address-family']['ipv6-unicast'].get('default-originate',False) %}
+                    default-originate {
+                    }
                     {% endif %}
                 }
                 {% endif %}
@@ -480,6 +491,97 @@ policy {
         }
     }
 
+    prefix-list hphr-DFZ-LONG-IPv4 {
+        rule 100 {
+            prefix 192.168.0.0/16
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 101 {
+            prefix 172.16.0.0/12
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 102 {
+            prefix 10.0.0.0/8
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 103 {
+            prefix 169.254.0.0/16
+            description "link-local"
+            le 32
+            action deny
+        }
+        rule 104 {
+            prefix 100.64.0.0/10
+            description "CGNAT"
+            le 32
+            action deny
+        }
+        rule 105 {
+            prefix 127.0.0.0/8
+            description "loopback"
+            le 32
+            action deny
+        }
+        rule 106 {
+            prefix 192.0.0.0/24
+            description "IETF protocol assignments"
+            le 32
+            action deny
+        }
+        rule 107 {
+            prefix 192.0.2.0/24
+            description "TEST-NET-1"
+            le 32
+            action deny
+        }
+        rule 108 {
+            prefix 198.18.0.0/15
+            description "Network interconnect device benchmark testing"
+            le 32
+            action deny
+        }
+        rule 109 {
+            prefix 198.51.100.0/24
+            description "TEST-NET-2"
+            le 32
+            action deny
+        }
+        rule 110 {
+            prefix 203.0.113.0/24
+            description "TEST-NET-3"
+            le 32
+            action deny
+        }
+        rule 111 {
+            prefix 224.0.0.0/4
+            description "multicast"
+            le 32
+            action deny
+        }
+        rule 112 {
+            prefix 240.0.0.0/4
+            description "reserved"
+            le 32
+            action deny
+        }
+        rule 1000 {
+            prefix 0.0.0.0/0
+            le 32
+            action permit
+        }
+        rule 65535 {
+            prefix 0.0.0.0/0
+            le 32
+            action deny
+        }
+    }
+
     prefix-list hphr-DFZ-DEFAULT-IPv4 {
         rule 10 {
             prefix 0.0.0.0/0
@@ -566,6 +668,101 @@ policy {
         rule 1000 {
             prefix 0.0.0.0/0
             le 24
+            action permit
+        }
+        rule 65535 {
+            prefix 0.0.0.0/0
+            le 32
+            action deny
+        }
+    }
+
+    prefix-list hphr-DFZ-DEFAULT-LONG-IPv4 {
+        rule 10 {
+            prefix 0.0.0.0/0
+            action permit
+        }
+        rule 100 {
+            prefix 192.168.0.0/16
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 101 {
+            prefix 172.16.0.0/12
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 102 {
+            prefix 10.0.0.0/8
+            description "RFC1918"
+            le 32
+            action deny
+        }
+        rule 103 {
+            prefix 169.254.0.0/16
+            description "link-local"
+            le 32
+            action deny
+        }
+        rule 104 {
+            prefix 100.64.0.0/10
+            description "CGNAT"
+            le 32
+            action deny
+        }
+        rule 105 {
+            prefix 127.0.0.0/8
+            description "loopback"
+            le 32
+            action deny
+        }
+        rule 106 {
+            prefix 192.0.0.0/24
+            description "IETF protocol assignments"
+            le 32
+            action deny
+        }
+        rule 107 {
+            prefix 192.0.2.0/24
+            description "TEST-NET-1"
+            le 32
+            action deny
+        }
+        rule 108 {
+            prefix 198.18.0.0/15
+            description "Network interconnect device benchmark testing"
+            le 32
+            action deny
+        }
+        rule 109 {
+            prefix 198.51.100.0/24
+            description "TEST-NET-2"
+            le 32
+            action deny
+        }
+        rule 110 {
+            prefix 203.0.113.0/24
+            description "TEST-NET-3"
+            le 32
+            action deny
+        }
+        rule 111 {
+            prefix 224.0.0.0/4
+            description "multicast"
+            le 32
+            action deny
+        }
+        rule 112 {
+            prefix 240.0.0.0/4
+            description "reserved"
+            le 32
+            action deny
+        }
+        rule 1000 {
+            prefix 0.0.0.0/0
+            le 32
             action permit
         }
         rule 65535 {
@@ -681,6 +878,84 @@ policy {
         }
     }
 
+    prefix-list6 hphr-DFZ-LONG-IPv6 {
+        rule 100 {
+            prefix ::/128
+            description "not self"
+            action deny
+        }
+        rule 101 {
+            prefix ::1/128
+            description "self"
+            action deny
+        }
+        rule 102 {
+            prefix ::ffff:0:0/96
+            description "IPv4-mapped"
+            le 128
+            action deny
+        }
+        rule 103 {
+            prefix ::/96
+            description "IPv4-compatible"
+            le 128
+            action deny
+        }
+        rule 104 {
+            prefix 100::/64
+            description "RTBH addresses"
+            le 128
+            action deny
+        }
+        rule 105 {
+            prefix 2001:10::/28
+            description "ORCHID addresses"
+            le 128
+            action deny
+        }
+        rule 106 {
+            prefix 2001:db8::/32
+            description "documentation prefix"
+            le 128
+            action deny
+        }
+        rule 107 {
+            prefix fc00::/7
+            description "ULA address"
+            le 128
+            action deny
+        }
+        rule 108 {
+            prefix fe80::/10
+            description "link-local"
+            le 128
+            action deny
+        }
+        rule 109 {
+            prefix fec0::/10
+            description "site-local"
+            le 128
+            action deny
+        }
+        rule 110 {
+            prefix ff0e::/16
+            description "global multicast"
+            le 64
+            action permit
+        }
+        rule 111 {
+            prefix ff00::/8
+            description "multicast"
+            le 128
+            action deny
+        }
+        rule 1000 {
+            prefix ::/0
+            le 128
+            action permit
+        }
+    }
+
     prefix-list6 hphr-DFZ-DEFAULT-IPv6 {
         rule 10 {
             prefix ::/0
@@ -759,6 +1034,88 @@ policy {
         rule 1000 {
             prefix ::/0
             le 64
+            action permit
+        }
+    }
+
+    prefix-list6 hphr-DFZ-DEFAULT-LONG-IPv6 {
+        rule 10 {
+            prefix ::/0
+            action permit
+        }
+        rule 100 {
+            prefix ::/128
+            description "not self"
+            action deny
+        }
+        rule 101 {
+            prefix ::1/128
+            description "self"
+            action deny
+        }
+        rule 102 {
+            prefix ::ffff:0:0/96
+            description "IPv4-mapped"
+            le 128
+            action deny
+        }
+        rule 103 {
+            prefix ::/96
+            description "IPv4-compatible"
+            le 128
+            action deny
+        }
+        rule 104 {
+            prefix 100::/64
+            description "RTBH addresses"
+            le 128
+            action deny
+        }
+        rule 105 {
+            prefix 2001:10::/28
+            description "ORCHID addresses"
+            le 128
+            action deny
+        }
+        rule 106 {
+            prefix 2001:db8::/32
+            description "documentation prefix"
+            le 128
+            action deny
+        }
+        rule 107 {
+            prefix fc00::/7
+            description "ULA address"
+            le 128
+            action deny
+        }
+        rule 108 {
+            prefix fe80::/10
+            description "link-local"
+            le 128
+            action deny
+        }
+        rule 109 {
+            prefix fec0::/10
+            description "site-local"
+            le 128
+            action deny
+        }
+        rule 110 {
+            prefix ff0e::/16
+            description "global multicast"
+            le 64
+            action permit
+        }
+        rule 111 {
+            prefix ff00::/8
+            description "multicast"
+            le 128
+            action deny
+        }
+        rule 1000 {
+            prefix ::/0
+            le 128
             action permit
         }
     }
@@ -857,7 +1214,7 @@ policy {
             continue {% if group['continue'] == 'next' %}{{ loop.index+1 }}{% else %}{{ group['continue'] }}{% endif %}
             {% endif %}
             set {
-                {% if 'set-community' in group %}community {{ group['set-community'] }}{% endif %}
+                {% if 'add-community' in group %}community "additive {{ group['add-community'] }}"{% elif 'set-community' in group %}community {{ group['set-community'] }}{% endif %}
                 {% if 'set-local-preference' in group %}local-preference {{ group['set-local-preference'] }}{% endif %}
             }
         }
@@ -875,8 +1232,12 @@ policy {
             rule {{ loop.index }} {
                 action permit
                 prefix {{ prefix['prefix'] }}
-                {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
-                {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+                {% if prefix_data['bgpq3'].get('most-specific',False) %}
+                    le 32
+                {% else %}
+                    {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
+                    {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+                {% endif %}
             }
             {% endfor %}
         {% elif 'static' in prefix_data %}
@@ -906,8 +1267,12 @@ policy {
             rule {{ loop.index }} {
                 action permit
                 prefix {{ prefix['prefix'] }}
-                {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
-                {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+                {% if prefix_data['bgpq3'].get('most-specific',False) %}
+                    le 128
+                {% else %}
+                    {% if prefix.get('less-equal',None) != None %}le {{ prefix['less-equal'] }}{% endif %}
+                    {% if prefix.get('greater-equal',None) != None %}ge {{ prefix['greater-equal'] }}{% endif %}
+                {% endif %}
             }
             {% endfor %}
         {% elif 'static' in prefix_data %}
@@ -983,7 +1348,7 @@ system {
         interface {{ iface_name }}
         {% endif %}{% endfor %}
         netflow {
-            sampling-rate {{ pillar['netflow']['sampling-rate']}}
+            sampling-rate 1
             {% for server in pillar['netflow']['servers'] %}
             server {{ server.split(":")[0] }} {
                 port {{ server.split(":")[1] }}

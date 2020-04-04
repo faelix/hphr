@@ -27,13 +27,13 @@ COMMIT
 *mangle
 :PREROUTING ACCEPT [0:0]
 {% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}{% if salt['pillar.get']('interfaces:'+iface_name+':netflow') %}
--A PREROUTING -i {{ iface_name }} -j NFLOG --nflog-group 2 --nflog-range 64 --nflog-threshold 10
+-A PREROUTING -i {{ iface_name }} -m statistic --mode nth --packet 1 --every {{ salt['pillar.get']('netflow:sampling-rate',64) }} -j NFLOG --nflog-group 2 {% if salt['grains.get']('kernelrelease','') in ["4.19.52-amd64-vyos","4.19.84-amd64-vyos"] %}--nflog-range 64{% else %}--nflog-size 64{% endif %} --nflog-threshold 64
 {% endif %}{% endfor %}
 :INPUT ACCEPT [0:0]
 :FORWARD ACCEPT [0:0]
 :OUTPUT ACCEPT [0:0]
 :POSTROUTING ACCEPT [0:0]
 {% for iface_name, iface_data in pillar['netbox']['interfaces'].items() %}{% if salt['pillar.get']('interfaces:'+iface_name+':netflow') %}
--A POSTROUTING -o {{ iface_name }} -j NFLOG --nflog-group 2 --nflog-range 64 --nflog-threshold 10
+-A POSTROUTING -o {{ iface_name }} -m statistic --mode nth --packet 1 --every {{ salt['pillar.get']('netflow:sampling-rate',64) }} -j NFLOG --nflog-group 2 {% if salt['grains.get']('kernelrelease','') in ["4.19.52-amd64-vyos","4.19.84-amd64-vyos"] %}--nflog-range 64{% else %}--nflog-size 64{% endif %} --nflog-threshold 64
 {% endif %}{% endfor %}
 COMMIT
