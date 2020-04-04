@@ -61,7 +61,11 @@ import logging
 
 # Import Salt libs
 import salt.utils.http
-import salt.ext.ipaddress as ipaddress
+import six
+if six.PY3:
+    import ipaddress
+else:
+    import salt.ext.ipaddress as ipaddress
 
 log = logging.getLogger(__name__)
 
